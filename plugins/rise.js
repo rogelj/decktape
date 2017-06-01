@@ -37,7 +37,7 @@ RISE.prototype = {
                         progress: false,
                         // FIXME: 0 is still displayed when slideNumber is set to false!
                         // slideNumber: false,
-                        fragments: false
+                        fragments: true
                     });
                 });
             });
