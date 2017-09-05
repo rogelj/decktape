@@ -1,92 +1,83 @@
-// The generic plugin emulates end-user interaction by pressing keyboard and detects changes to the DOM.
-// The deck is considered over when no change is detected afterward.
+// The generic plugin emulates end-user interaction by pressing keyboard
+// and detects changes to the DOM. The deck is considered over when no change
+// is detected afterward.
+
+const { pause } = require('../libs/util');
 
 exports.options = {
-    keycode: {
-        default: 'Right',
-        metavar: '<code>',
-        help: 'Key code pressed to navigate to next slide'
-    },
-    maxSlides: {
-        full: 'max-slides',
-        metavar: '<size>',
-        help: 'Maximum number of slides to export'
-    }
+  key : {
+    default : 'ArrowRight',
+    metavar : '<key>',
+    help    : 'Key pressed to navigate to next slide',
+  },
+  maxSlides : {
+    full    : 'max-slides',
+    metavar : '<size>',
+    help    : 'Maximum number of slides to export',
+  }
 };
 
 exports.help =
-    'Emulates the end-user interaction by pressing the key with the specified --keycode option\n' +
-    'and iterates over the presentation as long as:\n' +
-    '- Any change to the DOM is detected by observing mutation events targeting the body element\n' +
-    '  and its subtree,\n' +
-    '- Nor the number of slides exported has reached the specified --max-slides option.\n' +
-    'The --keycode option must be one of the PhantomJS page event keys and defaults to [Right].';
+`Emulates the end-user interaction by pressing the key with the specified --key option
+and iterates over the presentation as long as:
+- Any change to the DOM is detected by observing mutation events targeting the body element
+  and its subtree,
+- Nor the number of slides exported has reached the specified --max-slides option.
+  The --key option must be one of the 'KeyboardEvent' keys and defaults to [${exports.options.key.default}].`;
 
-exports.create = function (page, options) {
-    return new Generic(page, options);
-};
+exports.create = (page, options) => new Generic(page, options);
 
-function Generic(page, options) {
+class Generic {
+  constructor(page, options) {
     this.page = page;
     this.options = options;
     this.isNextSlideDetected = false;
-    this.keycode = this.page.event.key[this.options.keycode || exports.options.keycode.default];
+    this.key = this.options.key || exports.options.key.default;
+  }
+
+  getName() {
+    return 'Generic';
+  }
+
+  isActive() {
+    return true;
+  }
+
+  async configure() {
+    await this.page.exposeFunction('onMutation', _ => (this.isNextSlideDetected = true));
+    await this.page.evaluate(_ =>
+      new MutationObserver(_ => window.onMutation()).observe(document, {
+        attributes : true,
+        childList  : true,
+        subtree    : true,
+      })
+    );
+  }
+
+  slideCount() {
+    return undefined;
+  }
+
+  // A priori knowledge is impossible to achieve in a generic way. Thus the only way is to
+  // actually emulate end-user interaction by pressing the configured key and check whether
+  // the DOM has changed a posteriori.
+  async hasNextSlide() {
+    if (this.options.maxSlides && this.currentSlide >= this.options.maxSlides)
+      return false;
+    await this.page.press(this.key);
+    // TODO: use mutation event directly instead of relying on a timeout
+    // TODO: detect cycle to avoid infinite navigation for frameworks
+    // that support loopable presentations like impress.js and flowtime.js
+    await pause(1000);
+    return this.isNextSlideDetected;
+  }
+
+  nextSlide() {
+    this.isNextSlideDetected = false;
+  }
+
+  async currentSlideIndex() {
+    const fragment = await this.page.evaluate(_ => window.location.hash.replace(/^#\/?/, ''));
+    return fragment.length ? fragment : this.currentSlide;
+  }
 }
-
-Generic.prototype = {
-
-    getName: function () {
-        return 'Generic';
-    },
-
-    isActive: function () {
-        return true;
-    },
-
-    configure: function () {
-        this.page.evaluate(function () {
-            var observer = new window.MutationObserver(function () {
-                window.callPhantom({ isNextSlideDetected: true });
-            });
-            observer.observe(document.querySelector('body'), { attributes: true, childList: true, subtree: true });
-        });
-        var plugin = this;
-        this.page.onCallback = function (mutation) {
-            if (mutation.isNextSlideDetected)
-                plugin.isNextSlideDetected = true;
-        };
-    },
-
-    slideCount: function () {
-        return undefined;
-    },
-
-    // A priori knowledge is impossible to achieve in a generic way. Thus the only way is to actually emulate end-user interaction by pressing the configured key and check whether the DOM has changed a posteriori.
-    hasNextSlide: function () {
-        if (this.options.maxSlides && this.currentSlide >= this.options.maxSlides)
-            return false;
-        // PhantomJS actually sends a 'keydown' DOM event when sending a 'keypress' user event. Hence 'keypress' event is skipped to avoid moving forward two steps instead of one. See https://github.com/ariya/phantomjs/issues/11094 for more details.
-        ['keydown'/*, 'keypress'*/, 'keyup'].forEach(function (event) {
-            this.page.sendEvent(event, this.keycode);
-        }, this);
-        var plugin = this;
-        return new Promise(function (fulfill) {
-            // TODO: use mutation event directly instead of relying on a timeout
-            // TODO: detect cycle to avoid infinite navigation for frameworks that support loopable presentations like impress.js and flowtime.js
-            setTimeout(function () {
-                fulfill(plugin.isNextSlideDetected);
-            }, 1000);
-        });
-    },
-
-    nextSlide: function () {
-        this.isNextSlideDetected = false;
-    },
-
-    currentSlideIndex: function () {
-        var fragment = this.page.evaluate(function () {
-            return window.location.hash.replace(/^#\/?/, '');
-        });
-        return fragment.length ? fragment : this.currentSlide;
-    }
-};

@@ -1,45 +1,50 @@
-function Remark(page) {
-    this.page = page;
-}
-
 // TODO: improve backward compatibility (e.g. getCurrentSlideIndex was getCurrentSlideNo in earlier versions)
-Remark.prototype = {
+exports.create = page => new Remark(page);
 
-    getName: function () {
-        return 'Remark JS';
-    },
+class Remark {
 
-    isActive: function () {
-        return this.page.evaluate(function () {
-            return typeof remark === 'object' && typeof slideshow === 'object';
-        });
-    },
+  constructor(page) {
+    this.page = page;
+  }
 
-    slideCount: function () {
-        return this.page.evaluate(function () {
-            return slideshow.getSlideCount();
-        });
-    },
+  getName() {
+    return 'Remark JS';
+  }
 
-    hasNextSlide: function () {
-        return this.page.evaluate(function () {
-            return slideshow.getCurrentSlideIndex() + 1 < slideshow.getSlideCount();
-        });
-    },
+  isActive() {
+    return this.page.evaluate(_ =>
+      typeof remark === 'object' && typeof slideshow === 'object');
+  }
 
-    nextSlide: function () {
-        this.page.evaluate(function () {
-            slideshow.gotoNextSlide();
-        });
-    },
+  async configure() {
+    await this.page.emulateMedia(null);
+    await this.page.evaluate(_ => {
+      for (let j = 0; j < document.styleSheets.length; j++) {
+        const sheet = document.styleSheets[j];
+        if (!sheet.rules) continue;
+        for (let i = sheet.rules.length - 1; i >= 0; i--) {
+          if (sheet.rules[i].cssText.indexOf('@media print') >= 0) {
+            sheet.deleteRule(i);
+          }
+        }
+      }
+    });
+  }
 
-    currentSlideIndex: function () {
-        return this.page.evaluate(function () {
-            return slideshow.getCurrentSlideIndex() + 1;
-        });
-    }
-};
+  slideCount() {
+    return this.page.evaluate(_ => slideshow.getSlideCount());
+  }
 
-exports.create = function (page) {
-    return new Remark(page);
-};
+  hasNextSlide() {
+    return this.page.evaluate(_ =>
+      slideshow.getCurrentSlideIndex() + 1 < slideshow.getSlideCount());
+  }
+
+  nextSlide() {
+    return this.page.evaluate(_ => slideshow.gotoNextSlide());
+  }
+
+  currentSlideIndex() {
+    return this.page.evaluate(_ => slideshow.getCurrentSlideIndex() + 1);
+  }
+}
